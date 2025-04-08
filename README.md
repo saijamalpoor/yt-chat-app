@@ -1,4 +1,4 @@
-# YouTube Video Chat with Gemini
+# YouTube Video Chat 
 
 A web application that allows users to chat about YouTube videos using Google's Gemini AI.
 
@@ -7,13 +7,13 @@ A web application that allows users to chat about YouTube videos using Google's 
 - YouTube video embedding
 - Video transcript extraction
 - AI-powered chat about video content
-- Real-time responses using Gemini AI
+
 
 ## Setup
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/youtube-chat-app.git
+git clone https://github.com/saijamalpoor/yt-chat-app.git
 cd youtube-chat-app
 ```
 
@@ -43,14 +43,15 @@ streamlit run app.py
 
 ## Project Structure
 
-youtube-chat-app/
+```text
+youtube-chat-app
 ├── .env # Environment variables
 ├── .gitignore # Git ignore file
 ├── README.md # Project documentation
 ├── requirements.txt # Python dependencies
 ├── main.py # Backend FastAPI server
 └── app.py # Frontend Streamlit app
-
+```
 
 ## Dependencies
 
@@ -64,3 +65,4 @@ youtube-chat-app/
 ## License
 
 MIT
+
