@@ -59,8 +59,25 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         margin-bottom: 1rem;
     }
+    .youtube-video {
+        width: 100%;
+        aspect-ratio: 16/9;
+        margin-bottom: 1rem;
+    }
+    .chat-container {
+        height: 400px;
+        overflow-y: auto;
+        padding: 1rem;
+        background-color: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
     </style>
     """, unsafe_allow_html=True)
+
+# Initialize session state for chat history
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
 
 # Configure logging
 logging.basicConfig(
@@ -182,6 +199,15 @@ def generate_response(transcript: str, question: str):
         logger.error(f"Error generating response: {str(e)}")
         return "Sorry, I encountered an error while generating the response."
 
+def display_chat_messages():
+    for message in st.session_state.chat_history:
+        st.markdown(f"""
+        <div class="chat-message {'user-message' if message['is_user'] else 'assistant-message'}">
+            <strong>{'You' if message['is_user'] else 'Assistant'}:</strong>
+            <p>{message['text']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
 def main():
     # Sidebar
     with st.sidebar:
@@ -223,32 +249,52 @@ def main():
                         </div>
                         """, unsafe_allow_html=True)
                         
-                        col_thumb, col_chat = st.columns([1, 1])
-                        with col_thumb:
-                            st.image(video_info["thumbnail_url"], use_column_width=True)
+                        # Embed YouTube video
+                        st.markdown(f"""
+                        <iframe class="youtube-video"
+                            src="https://www.youtube.com/embed/{video_id}"
+                            frameborder="0"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowfullscreen>
+                        </iframe>
+                        """, unsafe_allow_html=True)
                         
                         # Get transcript
                         transcript, error_message = get_transcript(video_id)
                         if transcript:
-                            with col_chat:
-                                st.markdown("### 💬 Ask about the video")
+                            st.markdown("### 💬 Chat about the video")
+                            
+                            # Chat container
+                            chat_container = st.container()
+                            with chat_container:
+                                st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+                                display_chat_messages()
+                                st.markdown('</div>', unsafe_allow_html=True)
+                            
+                            # Input container
+                            with st.container():
                                 question = st.text_input("Your question", key="question_input", 
                                                        placeholder="What is this video about?")
                                 
-                                if question:
-                                    with st.spinner("🤔 Thinking..."):
-                                        response = generate_response(transcript, question)
+                                if st.button("Send", key="send_button"):
+                                    if question:
+                                        # Add user message to chat history
+                                        st.session_state.chat_history.append({
+                                            "text": question,
+                                            "is_user": True
+                                        })
                                         
-                                    st.markdown(f"""
-                                    <div class="chat-message user-message">
-                                        <strong>You:</strong>
-                                        <p>{question}</p>
-                                    </div>
-                                    <div class="chat-message assistant-message">
-                                        <strong>Assistant:</strong>
-                                        <p>{response}</p>
-                                    </div>
-                                    """, unsafe_allow_html=True)
+                                        with st.spinner("🤔 Thinking..."):
+                                            response = generate_response(transcript, question)
+                                            
+                                            # Add assistant response to chat history
+                                            st.session_state.chat_history.append({
+                                                "text": response,
+                                                "is_user": False
+                                            })
+                                        
+                                        # Clear input
+                                        st.experimental_rerun()
                         else:
                             st.error(error_message or "No transcript available for this video.")
                 else:
