@@ -66,3 +66,57 @@ youtube-chat-app
 
 MIT
 
+# YTGPT Chrome Extension
+
+A Chrome extension that allows you to chat with YouTube videos using AI.
+
+## Features
+
+- Chat with any YouTube video using AI
+- Get instant answers about video content
+- Clean and intuitive interface
+- Works with any YouTube video that has captions
+
+## Installation
+
+1. Clone this repository
+2. Open Chrome and go to `chrome://extensions/`
+3. Enable "Developer mode" in the top right corner
+4. Click "Load unpacked" and select the extension directory
+5. The extension should now be installed and ready to use
+
+## Usage
+
+1. Navigate to any YouTube video
+2. Click the "Chat with Video" button that appears in the bottom right corner
+3. Ask questions about the video in the chat interface
+4. Get AI-powered responses based on the video's content
+
+## Development
+
+To modify the extension:
+
+1. Make changes to the source files
+2. Go to `chrome://extensions/`
+3. Find the YTGPT extension and click the refresh icon
+4. The changes will be applied
+
+## Files Structure
+
+- `manifest.json` - Extension configuration
+- `popup.html` - Chat interface
+- `popup.js` - Chat functionality
+- `content.js` - YouTube page integration
+- `background.js` - Extension background processes
+- `icons/` - Extension icons
+
+## Requirements
+
+- Chrome browser
+- YouTube video with captions
+- Internet connection
+
+## Note
+
+Make sure to replace `YOUR_STREAMLIT_APP_URL` in `popup.js` with your actual Streamlit app URL before using the extension.
+

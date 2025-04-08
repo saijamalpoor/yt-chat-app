@@ -2,6 +2,10 @@ import streamlit as st
 import requests
 import re
 import logging
+from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+import google.generativeai as genai
+from dotenv import load_dotenv
+import os
 
 # Configure logging
 logging.basicConfig(
@@ -14,8 +18,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Backend API URL
-API_URL = "http://localhost:8000"
+# Load environment variables and configure Gemini
+load_dotenv()
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+model = genai.GenerativeModel('gemini-1.5-pro-latest')
 
 def extract_video_id(url):
     try:
@@ -35,13 +41,56 @@ def extract_video_id(url):
         logger.error(f"Error extracting video ID: {str(e)}")
         return None
 
+def get_video_info(video_id: str):
+    """Get video info using YouTube's oembed API"""
+    try:
+        oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+        response = requests.get(oembed_url)
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "title": data.get("title", ""),
+                "thumbnail_url": data.get("thumbnail_url", ""),
+                "author_name": data.get("author_name", "")
+            }
+        return None
+    except Exception as e:
+        logger.error(f"Error getting video info: {str(e)}")
+        return None
+
+def get_transcript(video_id: str):
+    """Get transcript for a YouTube video"""
+    try:
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        return " ".join([t["text"] for t in transcript_list])
+    except (TranscriptsDisabled, NoTranscriptFound) as e:
+        logger.error(f"Transcript error: {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"Error getting transcript: {str(e)}")
+        return None
+
+def generate_response(transcript: str, question: str):
+    """Generate response using Gemini model"""
+    try:
+        prompt = f"""Based on the following YouTube video transcript, please answer the question. 
+        If the answer cannot be found in the transcript, please say so.
+
+        Transcript:
+        {transcript}
+
+        Question: {question}
+
+        Answer:"""
+        
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        logger.error(f"Error generating response: {str(e)}")
+        return "Sorry, I encountered an error while generating the response."
+
 def main():
     st.title("YTGPT")
-    
-    # Debug section
-    if st.sidebar.checkbox("Show Debug Info"):
-        st.sidebar.subheader("Debug Information")
-        st.sidebar.text("Logs will appear here")
     
     # Input YouTube URL
     video_url = st.text_input("Enter YouTube Video URL")
@@ -49,67 +98,30 @@ def main():
     if video_url:
         video_id = extract_video_id(video_url)
         if video_id:
-            st.info(f"Video ID: {video_id}")
-            
-            try:
-                # Get video information
-                response = requests.get(f"{API_URL}/video-info/{video_id}")
+            # Get video info
+            video_info = get_video_info(video_id)
+            if video_info:
+                st.image(video_info["thumbnail_url"])
+                st.subheader(video_info["title"])
+                st.text(f"By: {video_info['author_name']}")
                 
-                if response.status_code == 200:
-                    video_info = response.json()
+                # Get transcript
+                transcript = get_transcript(video_id)
+                if transcript:
+                    # Chat interface
+                    st.subheader("Ask questions about the video")
+                    question = st.text_input("Your question")
                     
-                    if video_info.get("status") == "success":
-                        # Display video
-                        st.video(video_url)
-                        
-                        # Display video title
-                        st.subheader(video_info["title"])
-                        
-                        # Chat interface
-                        st.subheader("Chat about the video")
-                        user_message = st.text_input("Your message")
-                        
-                        if user_message:
-                            try:
-                                chat_response = requests.post(
-                                    f"{API_URL}/chat",
-                                    json={
-                                        "video_id": video_id,
-                                        "message": user_message
-                                    },
-                                    headers={"Content-Type": "application/json"}
-                                )
-                                
-                                if chat_response.status_code == 200:
-                                    response_data = chat_response.json()
-                                    if response_data.get("status") == "success":
-                                        st.write("Assistant:", response_data["response"])
-                                    else:
-                                        st.error("Error in chat response")
-                                else:
-                                    error_detail = chat_response.json().get("detail", "Unknown error")
-                                    st.error(f"Error in chat response: {error_detail}")
-                                    logger.error(f"Chat error: {error_detail}")
-                            except requests.exceptions.RequestException as e:
-                                st.error(f"Network error during chat: {str(e)}")
-                                logger.error(f"Network error during chat: {str(e)}")
-                            except Exception as e:
-                                st.error(f"Unexpected error during chat: {str(e)}")
-                                logger.error(f"Unexpected error during chat: {str(e)}")
-                    else:
-                        st.error("Error in video information response")
+                    if question:
+                        with st.spinner("Generating response..."):
+                            response = generate_response(transcript, question)
+                            st.write(response)
                 else:
-                    error_detail = response.json().get("detail", "Unknown error")
-                    st.error(f"Error fetching video information: {error_detail}")
-                    logger.error(f"Backend error: {error_detail}")
-            except requests.exceptions.RequestException as e:
-                st.error(f"Network error: {str(e)}")
-                logger.error(f"Network error: {str(e)}")
-            except Exception as e:
-                st.error(f"Unexpected error: {str(e)}")
-                logger.error(f"Unexpected error: {str(e)}")
+                    st.error("No transcript available for this video.")
+            else:
+                st.error("Could not fetch video information.")
         else:
-            st.error("Invalid YouTube URL. Please enter a valid YouTube URL.")
+            st.error("Invalid YouTube URL. Please enter a valid YouTube video URL.")
 
 if __name__ == "__main__":
     main()
