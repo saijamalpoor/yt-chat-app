@@ -33,6 +33,7 @@ st.markdown("""
         border-radius: 5px;
         padding: 0.5rem 1rem;
         border: none;
+        width: 100px;
     }
     .stButton>button:hover {
         background-color: #FF3333;
@@ -71,6 +72,27 @@ st.markdown("""
         background-color: white;
         border-radius: 10px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 1rem;
+    }
+    .chat-messages {
+        display: flex;
+        flex-direction: column;
+    }
+    .chat-input {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        background-color: white;
+        padding: 1rem;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .chat-input input {
+        flex-grow: 1;
+    }
+    div[data-testid="stVerticalBlock"] > div:has(> div.chat-container) {
+        height: 400px;
+        overflow: hidden;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -200,13 +222,16 @@ def generate_response(transcript: str, question: str):
         return "Sorry, I encountered an error while generating the response."
 
 def display_chat_messages():
-    for message in st.session_state.chat_history:
-        st.markdown(f"""
-        <div class="chat-message {'user-message' if message['is_user'] else 'assistant-message'}">
-            <strong>{'You' if message['is_user'] else 'Assistant'}:</strong>
-            <p>{message['text']}</p>
-        </div>
-        """, unsafe_allow_html=True)
+    with st.container():
+        st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
+        for message in st.session_state.chat_history:
+            st.markdown(f"""
+            <div class="chat-message {'user-message' if message['is_user'] else 'assistant-message'}">
+                <strong>{'You' if message['is_user'] else 'Assistant'}:</strong>
+                <p>{message['text']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
 def main():
     # Sidebar
@@ -264,20 +289,26 @@ def main():
                         if transcript:
                             st.markdown("### 💬 Chat about the video")
                             
-                            # Chat container
-                            chat_container = st.container()
-                            with chat_container:
-                                st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-                                display_chat_messages()
-                                st.markdown('</div>', unsafe_allow_html=True)
-                            
-                            # Input container
-                            with st.container():
-                                question = st.text_input("Your question", key="question_input", 
-                                                       placeholder="What is this video about?")
+                            # Chat interface container
+                            chat_interface = st.container()
+                            with chat_interface:
+                                # Chat messages container with fixed height
+                                chat_container = st.container()
+                                with chat_container:
+                                    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+                                    display_chat_messages()
+                                    st.markdown('</div>', unsafe_allow_html=True)
                                 
-                                if st.button("Send", key="send_button"):
-                                    if question:
+                                # Input container
+                                with st.container():
+                                    col1, col2 = st.columns([5,1])
+                                    with col1:
+                                        question = st.text_input("", key="question_input", 
+                                                            placeholder="What is this video about?")
+                                    with col2:
+                                        send_button = st.button("Send", key="send_button", use_container_width=True)
+                                    
+                                    if send_button and question:
                                         # Add user message to chat history
                                         st.session_state.chat_history.append({
                                             "text": question,
@@ -293,7 +324,7 @@ def main():
                                                 "is_user": False
                                             })
                                         
-                                        # Clear input
+                                        # Clear input and rerun
                                         st.experimental_rerun()
                         else:
                             st.error(error_message or "No transcript available for this video.")
