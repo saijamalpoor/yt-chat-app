@@ -7,6 +7,61 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 import os
 
+# Page configuration
+st.set_page_config(
+    page_title="YTGPT - Chat with YouTube Videos",
+    page_icon="🎥",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS
+st.markdown("""
+    <style>
+    .main {
+        padding: 0rem 1rem;
+    }
+    .stApp {
+        background-color: #f5f5f5;
+    }
+    .css-1d391kg {
+        padding-top: 1rem;
+    }
+    .stButton>button {
+        background-color: #FF4B4B;
+        color: white;
+        border-radius: 5px;
+        padding: 0.5rem 1rem;
+        border: none;
+    }
+    .stButton>button:hover {
+        background-color: #FF3333;
+    }
+    .chat-message {
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin-bottom: 1rem;
+        display: flex;
+        flex-direction: column;
+    }
+    .user-message {
+        background-color: #e3f2fd;
+        border-left: 5px solid #2196f3;
+    }
+    .assistant-message {
+        background-color: #f5f5f5;
+        border-left: 5px solid #FF4B4B;
+    }
+    .video-info {
+        background-color: white;
+        padding: 1.5rem;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 1rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # Configure logging
 logging.basicConfig(
     level=logging.DEBUG,
@@ -61,14 +116,52 @@ def get_video_info(video_id: str):
 def get_transcript(video_id: str):
     """Get transcript for a YouTube video"""
     try:
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-        return " ".join([t["text"] for t in transcript_list])
-    except (TranscriptsDisabled, NoTranscriptFound) as e:
-        logger.error(f"Transcript error: {str(e)}")
-        return None
+        # First try to get the list of available transcripts
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        
+        # Try to get English transcript first
+        try:
+            transcript = transcript_list.find_transcript(['en'])
+        except NoTranscriptFound:
+            # If no English transcript, try to get any transcript and translate it
+            try:
+                transcript = transcript_list.find_manually_created_transcript()
+            except NoTranscriptFound:
+                # If no manual transcript, try auto-generated
+                try:
+                    transcript = transcript_list.find_generated_transcript()
+                except NoTranscriptFound:
+                    # If still nothing found, get the first available transcript
+                    available_transcripts = transcript_list.manual_transcripts
+                    if not available_transcripts:
+                        available_transcripts = transcript_list.generated_transcripts
+                    
+                    if available_transcripts:
+                        transcript = list(available_transcripts.values())[0]
+                    else:
+                        return None, "No transcripts available for this video."
+
+        # Fetch the transcript and translate if needed
+        if transcript.language_code != 'en':
+            try:
+                transcript = transcript.translate('en')
+                st.info(f"Using translated transcript from {transcript.language_code} to English")
+            except Exception as e:
+                logger.error(f"Translation error: {str(e)}")
+                # Continue with original language if translation fails
+                st.warning(f"Using original transcript in {transcript.language_code} (translation failed)")
+
+        # Get the actual transcript text
+        transcript_pieces = transcript.fetch()
+        return " ".join([t["text"] for t in transcript_pieces]), None
+
+    except TranscriptsDisabled:
+        return None, "Transcripts are disabled for this video."
+    except NoTranscriptFound:
+        return None, "No transcripts found for this video."
     except Exception as e:
         logger.error(f"Error getting transcript: {str(e)}")
-        return None
+        return None, f"Error fetching transcript: {str(e)}"
 
 def generate_response(transcript: str, question: str):
     """Generate response using Gemini model"""
@@ -90,38 +183,92 @@ def generate_response(transcript: str, question: str):
         return "Sorry, I encountered an error while generating the response."
 
 def main():
-    st.title("YTGPT")
+    # Sidebar
+    with st.sidebar:
+        st.image("https://raw.githubusercontent.com/streamlit/streamlit/develop/lib/streamlit/static/favicon.png", width=50)
+        st.title("YTGPT")
+        st.markdown("---")
+        st.markdown("""
+        ### How to use:
+        1. Paste a YouTube video URL
+        2. Wait for the video info to load
+        3. Ask questions about the video
+        
+        ### Features:
+        - 🌐 Multi-language support
+        - 🤖 AI-powered responses
+        - 📝 Transcript analysis
+        """)
+        st.markdown("---")
+        st.markdown("Made with ❤️ using Streamlit")
+
+    # Main content
+    col1, col2 = st.columns([2, 1])
     
-    # Input YouTube URL
-    video_url = st.text_input("Enter YouTube Video URL")
-    
-    if video_url:
-        video_id = extract_video_id(video_url)
-        if video_id:
-            # Get video info
-            video_info = get_video_info(video_id)
-            if video_info:
-                st.image(video_info["thumbnail_url"])
-                st.subheader(video_info["title"])
-                st.text(f"By: {video_info['author_name']}")
-                
-                # Get transcript
-                transcript = get_transcript(video_id)
-                if transcript:
-                    # Chat interface
-                    st.subheader("Ask questions about the video")
-                    question = st.text_input("Your question")
-                    
-                    if question:
-                        with st.spinner("Generating response..."):
-                            response = generate_response(transcript, question)
-                            st.write(response)
+    with col1:
+        st.markdown("### 🎥 Enter YouTube Video URL")
+        video_url = st.text_input("", placeholder="Paste YouTube URL here...")
+        
+        if video_url:
+            video_id = extract_video_id(video_url)
+            if video_id:
+                # Get video info
+                video_info = get_video_info(video_id)
+                if video_info:
+                    with st.container():
+                        st.markdown(f"""
+                        <div class="video-info">
+                            <h3>{video_info["title"]}</h3>
+                            <p>By: {video_info["author_name"]}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        col_thumb, col_chat = st.columns([1, 1])
+                        with col_thumb:
+                            st.image(video_info["thumbnail_url"], use_column_width=True)
+                        
+                        # Get transcript
+                        transcript, error_message = get_transcript(video_id)
+                        if transcript:
+                            with col_chat:
+                                st.markdown("### 💬 Ask about the video")
+                                question = st.text_input("Your question", key="question_input", 
+                                                       placeholder="What is this video about?")
+                                
+                                if question:
+                                    with st.spinner("🤔 Thinking..."):
+                                        response = generate_response(transcript, question)
+                                        
+                                    st.markdown(f"""
+                                    <div class="chat-message user-message">
+                                        <strong>You:</strong>
+                                        <p>{question}</p>
+                                    </div>
+                                    <div class="chat-message assistant-message">
+                                        <strong>Assistant:</strong>
+                                        <p>{response}</p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                        else:
+                            st.error(error_message or "No transcript available for this video.")
                 else:
-                    st.error("No transcript available for this video.")
+                    st.error("Could not fetch video information.")
             else:
-                st.error("Could not fetch video information.")
-        else:
-            st.error("Invalid YouTube URL. Please enter a valid YouTube video URL.")
+                st.error("Invalid YouTube URL. Please enter a valid YouTube video URL.")
+    
+    with col2:
+        if not video_url:
+            st.markdown("""
+            ### Welcome to YTGPT! 👋
+            
+            This AI-powered tool helps you interact with YouTube videos in a new way.
+            Just paste a video URL and start asking questions about its content!
+            
+            #### Examples:
+            - What are the main points discussed?
+            - Can you summarize the video?
+            - What was the conclusion?
+            """)
 
 if __name__ == "__main__":
     main()
