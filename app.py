@@ -38,41 +38,24 @@ st.markdown("""
     .stButton>button:hover {
         background-color: #FF3333;
     }
-    .chat-outer-container {
-        background-color: white;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        margin-bottom: 1rem;
-        height: 400px;
-        overflow: hidden;
-    }
-    .chat-messages {
-        height: 100%;
-        overflow-y: auto;
-        padding: 1rem;
-    }
     .chat-message {
-        padding: 0.8rem;
-        border-radius: 0.5rem;
-        margin-bottom: 0.8rem;
-        word-wrap: break-word;
+        padding: 1rem;
+        border-radius: 10px;
+        margin-bottom: 1rem;
+        max-width: 85%;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     .user-message {
         background-color: #e3f2fd;
-        border-left: 4px solid #2196f3;
-        margin-left: 20px;
+        margin-left: auto;
+        margin-right: 0;
+        border-bottom-right-radius: 4px;
     }
     .assistant-message {
-        background-color: #f5f5f5;
-        border-left: 4px solid #FF4B4B;
-        margin-right: 20px;
-    }
-    .chat-input-area {
         background-color: white;
-        border-radius: 10px;
-        padding: 1rem;
-        margin-top: 0.5rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-right: auto;
+        margin-left: 0;
+        border-bottom-left-radius: 4px;
     }
     .video-info {
         background-color: white;
@@ -85,6 +68,16 @@ st.markdown("""
         width: 100%;
         aspect-ratio: 16/9;
         margin-bottom: 1rem;
+    }
+    .chat-input {
+        margin-top: 1rem;
+        background-color: white;
+        padding: 1rem;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .message-text {
+        margin: 0.5rem 0 0 0;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -218,7 +211,7 @@ def display_chat_messages():
         st.markdown(f"""
         <div class="chat-message {'user-message' if message['is_user'] else 'assistant-message'}">
             <strong>{'You' if message['is_user'] else 'Assistant'}:</strong>
-            <p style="margin: 0.5rem 0 0 0;">{message['text']}</p>
+            <p class="message-text">{message['text']}</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -278,23 +271,17 @@ def main():
                         if transcript:
                             st.markdown("### 💬 Chat about the video")
                             
-                            # Chat interface
+                            # Display chat messages
+                            display_chat_messages()
+                            
+                            # Input area
                             with st.container():
-                                # Outer container for chat messages
-                                st.markdown('<div class="chat-outer-container">', unsafe_allow_html=True)
-                                st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
-                                display_chat_messages()
-                                st.markdown('</div></div>', unsafe_allow_html=True)
-                                
-                                # Input area
-                                st.markdown('<div class="chat-input-area">', unsafe_allow_html=True)
                                 col1, col2 = st.columns([5,1])
                                 with col1:
                                     question = st.text_input("", key="question_input", 
                                                         placeholder="What is this video about?")
                                 with col2:
                                     send_button = st.button("Send", key="send_button", use_container_width=True)
-                                st.markdown('</div>', unsafe_allow_html=True)
 
                                 if send_button and question:
                                     # Add user message to chat history
