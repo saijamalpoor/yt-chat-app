@@ -137,74 +137,72 @@ def get_video_info(video_id: str):
         logger.error(f"Error getting video info: {str(e)}")
         return None
 
-def get_transcript(video_id: str):
-    """Get transcript for a YouTube video"""
+def get_transcript(video_id):
+    """
+    Get transcript for a YouTube video with multiple fallback methods.
+    """
     try:
-        # First try to get the list of available transcripts
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-        
-        # Try to get English transcript first
-        try:
-            transcript = transcript_list.find_transcript(['en'])
-        except NoTranscriptFound:
-            # If no English transcript, try to get any transcript and translate it
-            try:
-                transcript = transcript_list.find_manually_created_transcript()
-            except NoTranscriptFound:
-                # If no manual transcript, try auto-generated
-                try:
-                    transcript = transcript_list.find_generated_transcript()
-                except NoTranscriptFound:
-                    # If still nothing found, get the first available transcript
-                    available_transcripts = transcript_list.manual_transcripts
-                    if not available_transcripts:
-                        available_transcripts = transcript_list.generated_transcripts
-                    
-                    if available_transcripts:
-                        transcript = list(available_transcripts.values())[0]
-                    else:
-                        return None, "No transcripts available for this video."
-
-        # Fetch the transcript and translate if needed
-        if transcript.language_code != 'en':
-            try:
-                transcript = transcript.translate('en')
-                st.info(f"Using translated transcript from {transcript.language_code} to English")
-            except Exception as e:
-                logger.error(f"Translation error: {str(e)}")
-                # Continue with original language if translation fails
-                st.warning(f"Using original transcript in {transcript.language_code} (translation failed)")
-
-        # Get the actual transcript text
-        transcript_pieces = transcript.fetch()
-        return " ".join([t["text"] for t in transcript_pieces]), None
-
+        # Method 1: Try to get English transcript directly
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+        return transcript_list, None
     except TranscriptsDisabled:
-        return None, "Transcripts are disabled for this video."
+        try:
+            # Method 2: Try to get any available transcript
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+            return transcript_list, None
+        except Exception as e:
+            try:
+                # Method 3: Try to get auto-generated transcript
+                transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'], auto_generated=True)
+                return transcript_list, None
+            except Exception as e:
+                try:
+                    # Method 4: Try to get transcript in any language and translate
+                    transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'hi'])
+                    return transcript_list, None
+                except Exception as e:
+                    return None, f"Transcripts are disabled for this video. Error: {str(e)}"
     except NoTranscriptFound:
-        return None, "No transcripts found for this video."
+        try:
+            # Method 5: Try to get auto-generated transcript in any language
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, auto_generated=True)
+            return transcript_list, None
+        except Exception as e:
+            return None, f"No transcript found for this video. Error: {str(e)}"
     except Exception as e:
-        logger.error(f"Error getting transcript: {str(e)}")
-        return None, f"Error fetching transcript: {str(e)}"
+        return None, f"Error getting transcript: {str(e)}"
 
-def generate_response(transcript: str, question: str):
-    """Generate response using Gemini model"""
+def generate_response(transcript_list, question: str):
+    """
+    Generate AI response based on transcript and question
+    """
     try:
-        prompt = f"""Based on the following YouTube video transcript, please answer the question. 
-        If the answer cannot be found in the transcript, please say so.
-
-        Transcript:
-        {transcript}
-
-        Question: {question}
-
-        Answer:"""
+        # Convert transcript list to text
+        transcript_text = " ".join([t["text"] for t in transcript_list])
         
+        # Configure Gemini
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        model = genai.GenerativeModel('gemini-pro')
+        
+        # Create prompt
+        prompt = f"""
+        You are an AI assistant helping users understand YouTube videos. 
+        Here is the video transcript:
+        
+        {transcript_text}
+        
+        Please answer this question about the video: {question}
+        
+        Provide a clear, concise, and accurate response based on the transcript.
+        If the question cannot be answered from the transcript, say so.
+        """
+        
+        # Generate response
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
         logger.error(f"Error generating response: {str(e)}")
-        return "Sorry, I encountered an error while generating the response."
+        return f"Sorry, I encountered an error while generating the response: {str(e)}"
 
 def display_chat_messages():
     for message in st.session_state.chat_history:
@@ -267,8 +265,8 @@ def main():
                         """, unsafe_allow_html=True)
                         
                         # Get transcript
-                        transcript, error_message = get_transcript(video_id)
-                        if transcript:
+                        transcript_list, error_message = get_transcript(video_id)
+                        if transcript_list:
                             st.markdown("### 💬 Chat about the video")
                             
                             # Display chat messages
@@ -291,7 +289,7 @@ def main():
                                     })
                                     
                                     with st.spinner("🤔 Thinking..."):
-                                        response = generate_response(transcript, question)
+                                        response = generate_response(transcript_list, question)
                                         
                                         # Add assistant response to chat history
                                         st.session_state.chat_history.append({
