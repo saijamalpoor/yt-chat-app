@@ -1,6 +1,7 @@
 # YouTube Video Chat 
 
 A web application that allows users to chat about YouTube videos using Google's Gemini AI.
+![Demo](demo.gif)
 
 ## Features
 
