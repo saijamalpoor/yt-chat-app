@@ -33,29 +33,24 @@ st.markdown("""
         border-radius: 5px;
         padding: 0.5rem 1rem;
         border: none;
-        width: 100px;
     }
     .stButton>button:hover {
         background-color: #FF3333;
     }
     .chat-message {
         padding: 1rem;
-        border-radius: 10px;
+        border-radius: 0.5rem;
         margin-bottom: 1rem;
-        max-width: 85%;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        display: flex;
+        flex-direction: column;
     }
     .user-message {
         background-color: #e3f2fd;
-        margin-left: auto;
-        margin-right: 0;
-        border-bottom-right-radius: 4px;
+        border-left: 5px solid #2196f3;
     }
     .assistant-message {
-        background-color: white;
-        margin-right: auto;
-        margin-left: 0;
-        border-bottom-left-radius: 4px;
+        background-color: #f5f5f5;
+        border-left: 5px solid #FF4B4B;
     }
     .video-info {
         background-color: white;
@@ -69,15 +64,13 @@ st.markdown("""
         aspect-ratio: 16/9;
         margin-bottom: 1rem;
     }
-    .chat-input {
-        margin-top: 1rem;
-        background-color: white;
+    .chat-container {
+        height: 400px;
+        overflow-y: auto;
         padding: 1rem;
+        background-color: white;
         border-radius: 10px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .message-text {
-        margin: 0.5rem 0 0 0;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -137,79 +130,81 @@ def get_video_info(video_id: str):
         logger.error(f"Error getting video info: {str(e)}")
         return None
 
-def get_transcript(video_id):
-    """
-    Get transcript for a YouTube video with multiple fallback methods.
-    """
+def get_transcript(video_id: str):
+    """Get transcript for a YouTube video"""
     try:
-        # Method 1: Try to get English transcript directly
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
-        return transcript_list, None
-    except TranscriptsDisabled:
+        # First try to get the list of available transcripts
+        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        
+        # Try to get English transcript first
         try:
-            # Method 2: Try to get any available transcript
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-            return transcript_list, None
-        except Exception as e:
+            transcript = transcript_list.find_transcript(['en'])
+        except NoTranscriptFound:
+            # If no English transcript, try to get any transcript and translate it
             try:
-                # Method 3: Try to get auto-generated transcript
-                transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'], auto_generated=True)
-                return transcript_list, None
-            except Exception as e:
+                transcript = transcript_list.find_manually_created_transcript()
+            except NoTranscriptFound:
+                # If no manual transcript, try auto-generated
                 try:
-                    # Method 4: Try to get transcript in any language and translate
-                    transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'hi'])
-                    return transcript_list, None
-                except Exception as e:
-                    return None, f"Transcripts are disabled for this video. Error: {str(e)}"
-    except NoTranscriptFound:
-        try:
-            # Method 5: Try to get auto-generated transcript in any language
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, auto_generated=True)
-            return transcript_list, None
-        except Exception as e:
-            return None, f"No transcript found for this video. Error: {str(e)}"
-    except Exception as e:
-        return None, f"Error getting transcript: {str(e)}"
+                    transcript = transcript_list.find_generated_transcript()
+                except NoTranscriptFound:
+                    # If still nothing found, get the first available transcript
+                    available_transcripts = transcript_list.manual_transcripts
+                    if not available_transcripts:
+                        available_transcripts = transcript_list.generated_transcripts
+                    
+                    if available_transcripts:
+                        transcript = list(available_transcripts.values())[0]
+                    else:
+                        return None, "No transcripts available for this video."
 
-def generate_response(transcript_list, question: str):
-    """
-    Generate AI response based on transcript and question
-    """
+        # Fetch the transcript and translate if needed
+        if transcript.language_code != 'en':
+            try:
+                transcript = transcript.translate('en')
+                st.info(f"Using translated transcript from {transcript.language_code} to English")
+            except Exception as e:
+                logger.error(f"Translation error: {str(e)}")
+                # Continue with original language if translation fails
+                st.warning(f"Using original transcript in {transcript.language_code} (translation failed)")
+
+        # Get the actual transcript text
+        transcript_pieces = transcript.fetch()
+        return " ".join([t["text"] for t in transcript_pieces]), None
+
+    except TranscriptsDisabled:
+        return None, "Transcripts are disabled for this video."
+    except NoTranscriptFound:
+        return None, "No transcripts found for this video."
+    except Exception as e:
+        logger.error(f"Error getting transcript: {str(e)}")
+        return None, f"Error fetching transcript: {str(e)}"
+
+def generate_response(transcript: str, question: str):
+    """Generate response using Gemini model"""
     try:
-        # Convert transcript list to text
-        transcript_text = " ".join([t["text"] for t in transcript_list])
+        prompt = f"""Based on the following YouTube video transcript, please answer the question. 
+        If the answer cannot be found in the transcript, please say so.
+
+        Transcript:
+        {transcript}
+
+        Question: {question}
+
+        Answer:"""
         
-        # Configure Gemini
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel('gemini-pro')
-        
-        # Create prompt
-        prompt = f"""
-        You are an AI assistant helping users understand YouTube videos. 
-        Here is the video transcript:
-        
-        {transcript_text}
-        
-        Please answer this question about the video: {question}
-        
-        Provide a clear, concise, and accurate response based on the transcript.
-        If the question cannot be answered from the transcript, say so.
-        """
-        
-        # Generate response
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
         logger.error(f"Error generating response: {str(e)}")
-        return f"Sorry, I encountered an error while generating the response: {str(e)}"
+        return "Sorry, I encountered an error while generating the response."
 
 def display_chat_messages():
     for message in st.session_state.chat_history:
         st.markdown(f"""
         <div class="chat-message {'user-message' if message['is_user'] else 'assistant-message'}">
             <strong>{'You' if message['is_user'] else 'Assistant'}:</strong>
-            <p class="message-text">{message['text']}</p>
+            <p>{message['text']}</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -230,8 +225,7 @@ def main():
         - 🤖 AI-powered responses
         - 📝 Transcript analysis
         """)
-        st.markdown("---")
-        st.markdown("Made with ❤️ using Streamlit")
+        
 
     # Main content
     col1, col2 = st.columns([2, 1])
@@ -265,40 +259,41 @@ def main():
                         """, unsafe_allow_html=True)
                         
                         # Get transcript
-                        transcript_list, error_message = get_transcript(video_id)
-                        if transcript_list:
+                        transcript, error_message = get_transcript(video_id)
+                        if transcript:
                             st.markdown("### 💬 Chat about the video")
                             
-                            # Display chat messages
-                            display_chat_messages()
+                            # Chat container
+                            chat_container = st.container()
+                            with chat_container:
+                                # st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+                                display_chat_messages()
+                                # st.markdown('</div>', unsafe_allow_html=True)
                             
-                            # Input area
+                            # Input container
                             with st.container():
-                                col1, col2 = st.columns([5,1])
-                                with col1:
-                                    question = st.text_input("", key="question_input", 
-                                                        placeholder="What is this video about?")
-                                with col2:
-                                    send_button = st.button("Send", key="send_button", use_container_width=True)
-
-                                if send_button and question:
-                                    # Add user message to chat history
-                                    st.session_state.chat_history.append({
-                                        "text": question,
-                                        "is_user": True
-                                    })
-                                    
-                                    with st.spinner("🤔 Thinking..."):
-                                        response = generate_response(transcript_list, question)
-                                        
-                                        # Add assistant response to chat history
+                                question = st.text_input("Your question", key="question_input", 
+                                                       placeholder="What is this video about?")
+                                
+                                if st.button("Send", key="send_button"):
+                                    if question:
+                                        # Add user message to chat history
                                         st.session_state.chat_history.append({
-                                            "text": response,
-                                            "is_user": False
+                                            "text": question,
+                                            "is_user": True
                                         })
-                                    
-                                    # Clear input and rerun
-                                    st.experimental_rerun()
+                                        
+                                        with st.spinner("🤔 Thinking..."):
+                                            response = generate_response(transcript, question)
+                                            
+                                            # Add assistant response to chat history
+                                            st.session_state.chat_history.append({
+                                                "text": response,
+                                                "is_user": False
+                                            })
+                                        
+                                        # Clear input
+                                        st.experimental_rerun()
                         else:
                             st.error(error_message or "No transcript available for this video.")
                 else:
